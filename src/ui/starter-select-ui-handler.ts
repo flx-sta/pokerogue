@@ -150,6 +150,7 @@ const gens = [
 
 export default class StarterSelectUiHandler extends MessageUiHandler {
   private starterSelectContainer: Phaser.GameObjects.Container;
+  private startLabel: Phaser.GameObjects.Text;
   private shinyOverlay: Phaser.GameObjects.Image;
   private starterSelectGenIconContainers: Phaser.GameObjects.Container[];
   private pokemonNumberText: Phaser.GameObjects.Text;
@@ -403,9 +404,9 @@ export default class StarterSelectUiHandler extends MessageUiHandler {
     this.valueLimitLabel.setOrigin(0.5, 0);
     this.starterSelectContainer.add(this.valueLimitLabel);
 
-    const startLabel = addTextObject(this.scene, 124, 162, i18next.t("starterSelectUiHandler:start"), TextStyle.TOOLTIP_CONTENT);
-    startLabel.setOrigin(0.5, 0);
-    this.starterSelectContainer.add(startLabel);
+    this.startLabel = addTextObject(this.scene, 124, 162, i18next.t("starterSelectUiHandler:randomize"), TextStyle.TOOLTIP_CONTENT);
+    this.startLabel.setOrigin(0.5, 0);
+    this.starterSelectContainer.add(this.startLabel);
 
     this.startCursorObj = this.scene.add.nineslice(111, 160, "select_cursor", null, 26, 15, 6, 6, 6, 6);
     this.startCursorObj.setVisible(false);
@@ -1018,22 +1019,15 @@ export default class StarterSelectUiHandler extends MessageUiHandler {
                   const cursorObj = this.starterCursorObjs[this.starterCursors.length];
                   cursorObj.setVisible(true);
                   cursorObj.setPosition(this.cursorObj.x, this.cursorObj.y);
-                  const props = this.scene.gameData.getSpeciesDexAttrProps(species, this.dexAttrCursor);
-                  this.starterIcons[this.starterCursors.length].setTexture(species.getIconAtlasKey(props.formIndex, props.shiny, props.variant));
-                  this.starterIcons[this.starterCursors.length].setFrame(species.getIconId(props.female, props.formIndex, props.shiny, props.variant));
-                  this.checkIconId(this.starterIcons[this.starterCursors.length], species, props.female, props.formIndex, props.shiny, props.variant);
-                  this.starterGens.push(this.getGenCursorWithScroll());
-                  this.starterCursors.push(this.cursor);
-                  this.starterAttr.push(this.dexAttrCursor);
-                  this.starterAbilityIndexes.push(this.abilityCursor);
-                  this.starterNatures.push(this.natureCursor as unknown as Nature);
-                  this.starterMovesets.push(this.starterMoveset.slice(0) as StarterMoveset);
-                  if (this.speciesLoaded.get(species.speciesId)) {
-                    getPokemonSpeciesForm(species.speciesId, props.formIndex).cry(this.scene);
-                  }
-                  if (this.starterCursors.length === 6 || this.value === this.getValueLimit()) {
-                    this.tryStart();
-                  }
+                  console.log(this.starterMoveset.slice(0));
+                  this.pushStarter(
+                    species,
+                    this.dexAttrCursor,
+                    this.getGenCursorWithScroll(),
+                    this.abilityCursor,
+                    this.natureCursor,
+                    this.starterMoveset.slice(0) as StarterMoveset
+                  );
                   this.updateInstructions();
                   ui.playSelect();
                 } else {
@@ -2055,6 +2049,10 @@ export default class StarterSelectUiHandler extends MessageUiHandler {
     this.starterIcons[this.starterCursors.length].setTexture("pokemon_icons_0");
     this.starterIcons[this.starterCursors.length].setFrame("unknown");
     this.tryUpdateValue();
+
+    if (this.starterCursors.length === 0) {
+      this.startLabel.setText(i18next.t("starterSelectUiHandler:randomize"));
+    }
   }
 
   updateStarterValueLabel(cursor: integer): void {
@@ -2110,6 +2108,7 @@ export default class StarterSelectUiHandler extends MessageUiHandler {
 
   tryStart(manualTrigger: boolean = false): boolean {
     if (!this.starterGens.length) {
+      this.randomizeStarters();
       return false;
     }
 
@@ -2203,6 +2202,56 @@ export default class StarterSelectUiHandler extends MessageUiHandler {
       console.log(`${species.name}'s variant icon does not exist. Replacing with default.`);
       icon.setTexture(species.getIconAtlasKey(formIndex, false, variant));
       icon.setFrame(species.getIconId(female, formIndex, false, variant));
+    }
+  }
+
+
+  pushStarter(species: PokemonSpecies, caughtAttr: bigint, gen: integer, ability: integer, nature: Nature, moveSet: StarterMoveset) {
+    const props = this.scene.gameData.getSpeciesDexAttrProps(species, caughtAttr);
+    this.starterIcons[this.starterCursors.length].setTexture(species.getIconAtlasKey(props.formIndex, props.shiny, props.variant));
+    this.starterIcons[this.starterCursors.length].setFrame(species.getIconId(props.female, props.formIndex, props.shiny, props.variant));
+    this.checkIconId(this.starterIcons[this.starterCursors.length], species, props.female, props.formIndex, props.shiny, props.variant);
+    this.starterGens.push(gen);
+    this.starterCursors.push(this.cursor);
+    this.starterAttr.push(caughtAttr);
+    this.starterAbilityIndexes.push(ability);
+    this.starterNatures.push(nature);
+    this.starterMovesets.push(moveSet);
+
+    if (this.speciesLoaded.get(species.speciesId)) {
+      getPokemonSpeciesForm(species.speciesId, props.formIndex).cry(this.scene);
+    }
+
+    if (this.starterCursors.length > 0) {
+      this.startLabel.setText(i18next.t("starterSelectUiHandler:start"));
+    }
+
+    if (this.starterCursors.length === 6 || this.value === this.getValueLimit()) {
+      this.tryStart();
+    }
+  }
+
+  randomizeStarters() {
+    const caughtStarters = Object.keys(speciesStarters).filter((species) => !!this.scene.gameData.dexData[species].caughtAttr);
+
+    while (this.value < this.getValueLimit() && this.starterCursors.length < 3) {
+      const rand = Utils.randInt(caughtStarters.length - 1);
+      const speciesId = caughtStarters[rand] as unknown as Species;
+
+      if (this.value + this.scene.gameData.getSpeciesStarterValue(speciesId) <= this.getValueLimit()) {
+        this.tryUpdateValue(this.scene.gameData.getSpeciesStarterValue(speciesId));
+        const dexEntry = this.scene.gameData.dexData[speciesId];
+        const species = getPokemonSpecies(speciesId);
+        this.pushStarter(
+          species,
+          dexEntry.caughtAttr,
+          species.generation,
+          this.scene.gameData.getStarterSpeciesDefaultAbilityIndex(species),
+          dexEntry.natureAttr,
+          species.getLevelMoves().filter(lm => lm[0] <= 5).map(lm => lm[1]) as StarterMoveset
+        );
+      }
+      console.log("starterCursors.length", this.starterCursors.length);
     }
   }
 }
